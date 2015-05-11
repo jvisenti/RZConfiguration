@@ -240,7 +240,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
     const char *utf8Encoding = encoding.UTF8String;
 
-    if ( strcmp(utf8Encoding, @encode(id)) == 0 ) {
+    if ( strcmp(utf8Encoding, @encode(id)) == 0 || strcmp(utf8Encoding, @encode(Class)) == 0 ) {
         getRet = ^id (RZConfiguration *s) {
             if ( ![s.setKeys containsObject:key] ) {
                 id defaultVal = [[s class] defaultValueForKey:key];
@@ -258,6 +258,14 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     else if ( strcmp(utf8Encoding, @encode(char)) == 0 ) {
         getRet = RZ_GETTER_BLOCK(key, char);
         setRet = RZ_SETTER_BLOCK(key, char, encoding);
+    }
+    else if ( strcmp(utf8Encoding, @encode(char *)) == 0 ) {
+        getRet = RZ_GETTER_BLOCK(key, char *);
+        setRet = RZ_SETTER_BLOCK(key, char *, encoding);
+    }
+    else if ( strcmp(utf8Encoding, @encode(void *)) == 0 ) {
+        getRet = RZ_GETTER_BLOCK(key, void *);
+        setRet = RZ_SETTER_BLOCK(key, void *, encoding);
     }
     else if ( strcmp(utf8Encoding, @encode(u_char)) == 0 ) {
         getRet = RZ_GETTER_BLOCK(key, u_char);
@@ -306,6 +314,10 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     else if ( strcmp(utf8Encoding, @encode(BOOL)) == 0 ) {
         getRet = RZ_GETTER_BLOCK(key, BOOL);
         setRet = RZ_SETTER_BLOCK(key, BOOL, encoding);
+    }
+    else if ( strcmp(utf8Encoding, @encode(SEL)) == 0 ) {
+        getRet = RZ_GETTER_BLOCK(key, SEL);
+        setRet = RZ_SETTER_BLOCK(key, SEL, encoding);
     }
     else if ( prop.typeSize == sizeof(CGPoint) ) {
         getRet = RZ_GETTER_BLOCK(key, CGPoint);
