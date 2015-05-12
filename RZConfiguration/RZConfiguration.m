@@ -10,31 +10,41 @@
 #import <QuartzCore/CATransform3D.h>
 
 #import "RZConfiguration.h"
+#import "NSObject+RZDataBinding.h"
 
 static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationPropertyKey;
 
-#define RZ_GETTER_BLOCK(key, type) \
-^type (RZConfiguration *self) \
+#define RZ_GETTER_BLOCK(_key, _type) \
+^_type (RZConfiguration *self) \
 { \
-    if ( ![self.setKeys containsObject:key] ) { \
-        id defaultVal = [[self class] defaultValueForKey:key]; \
-        [self setValue:defaultVal forKey:key]; \
+    if ( ![self isKeySet:_key] ) { \
+        id defaultVal = [[self class] defaultValueForKey:_key]; \
+        if ( defaultVal != nil ) { \
+            [self setValue:defaultVal forKey:_key]; \
+        } \
     } \
-    id val = [self valueForUndefinedKey:key]; \
-    type t; \
+    id val = [self valueForUndefinedKey:_key]; \
+    _type t; \
     [val getValue:&t]; \
     return t;\
 }
 
-#define RZ_SETTER_BLOCK(key, type, encoding) \
-^void (RZConfiguration *self, type value) \
+#define RZ_SETTER_BLOCK(_key, _type, _encoding) \
+^void (RZConfiguration *self, _type value) \
 { \
     @autoreleasepool { \
-        NSValue *val = [NSValue valueWithBytes:&value objCType:encoding.UTF8String]; \
-        [self setValue:val forUndefinedKey:key]; \
-        [self.setKeys addObject:key]; \
+        [self.setKeys addObject:_key]; \
+        [self setValue:[NSValue rz_wrapValue:&value encoding:_encoding.UTF8String]  forUndefinedKey:_key]; \
     } \
 }
+
+#pragma mark - NSValue+RZConfigurationExtensions interface
+
+@interface NSValue (RZConfigurationExtensions)
+
++ (NSValue *)rz_wrapValue:(const void *)value encoding:(const char *)encoding;
+
+@end
 
 #pragma mark - RZConfigurationProperty interface
 
@@ -43,6 +53,12 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 @property (nonatomic, readonly) NSString *name;
 @property (nonatomic, readonly) NSString *typeEncoding;
 @property (nonatomic, readonly) NSUInteger typeSize;
+
+@property (nonatomic, readonly, getter=isDynamic) BOOL dynamic;
+@property (nonatomic, readonly, getter=isWeak) BOOL weak;
+@property (nonatomic, readonly, getter=isCopy) BOOL copy;
+
+@property (nonatomic, readonly, getter=isObject) BOOL object;
 
 @property (nonatomic, readonly) SEL getter;
 @property (nonatomic, readonly) SEL setter;
@@ -98,7 +114,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
 - (id)valueForKey:(NSString *)key
 {
-    if ( ![self.setKeys containsObject:key] ) {
+    if ( ![self isKeySet:key] ) {
         id defaultVal = [[self class] defaultValueForKey:key];
 
         if ( defaultVal != nil ) {
@@ -111,21 +127,41 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
 - (id)valueForUndefinedKey:(NSString *)key
 {
-    return self.undefinedKeyValuePairs[key];
+    id value = self.undefinedKeyValuePairs[key];
+
+    if ( [value isKindOfClass:[NSValue class]] ) {
+        if ( [[self class] rz_propertyForKey:key].isWeak ) {
+            value = [value nonretainedObjectValue];
+
+            if ( value == nil ) {
+                [self.undefinedKeyValuePairs removeObjectForKey:key];
+            }
+        }
+    }
+
+    return value;
 }
 
 - (void)setValue:(id)value forKey:(NSString *)key
 {
     if ( key != nil ) {
-        [super setValue:value forKey:key];
-
         [self.setKeys addObject:key];
+        [super setValue:value forKey:key];
     }
 }
 
 - (void)setValue:(id)value forUndefinedKey:(NSString *)key
 {
     if ( value != nil ) {
+        RZObjcProperty *prop = [[self class] rz_propertyForKey:key];
+
+        if ( prop.isWeak ) {
+            value = [NSValue valueWithNonretainedObject:value];
+        }
+        else if ( prop.isCopy ) {
+            value = [value copy];
+        }
+        
         self.undefinedKeyValuePairs[key] = value;
     }
     else {
@@ -140,7 +176,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     if ( prop != nil) {
         void *zeroBytes = calloc(1, prop.typeSize);
 
-        NSValue *val = [NSValue valueWithBytes:zeroBytes objCType:prop.typeEncoding.UTF8String];
+        NSValue *val = [NSValue rz_wrapValue:zeroBytes encoding:prop.typeEncoding.UTF8String];
         [self setValue:val forKey:key];
 
         free(zeroBytes);
@@ -240,19 +276,13 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
     const char *utf8Encoding = encoding.UTF8String;
 
-    if ( strcmp(utf8Encoding, @encode(id)) == 0 || strcmp(utf8Encoding, @encode(Class)) == 0 ) {
-        getRet = ^id (RZConfiguration *s) {
-            if ( ![s.setKeys containsObject:key] ) {
-                id defaultVal = [[s class] defaultValueForKey:key];
-                [s setValue:defaultVal forKey:key];
-            }
-
-            return [s valueForUndefinedKey:key];
+    if ( prop.isObject ) {
+        getRet = ^id (RZConfiguration *self) {
+            return [self valueForKey:key];
         };
 
-        setRet = ^void (RZConfiguration *s, id val) {
-            [s setValue:val forUndefinedKey:key];
-            [s.setKeys addObject:key];
+        setRet = ^void (RZConfiguration *self, id val) {
+            [self setValue:val forKey:key];
         };
     }
     else if ( strcmp(utf8Encoding, @encode(char)) == 0 ) {
@@ -352,16 +382,20 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     id getter, setter;
     [self getGetterBlock:&getter setterBlock:&setter forProperty:prop];
 
-    if ( getter != nil && setter != nil ) {
+    if ( getter != nil ) {
         synthesized = YES;
 
         IMP getterIMP = imp_implementationWithBlock(getter);
 
-        synthesized &= class_addMethod(self, prop.getter, getterIMP, prop.getterTypeEncoding.UTF8String);
+        class_addMethod(self, prop.getter, getterIMP, prop.getterTypeEncoding.UTF8String);
+    }
+
+    if ( setter != nil ) {
+        synthesized = YES;
 
         IMP setterIMP = imp_implementationWithBlock(setter);
 
-        synthesized &= class_addMethod(self, prop.setter, setterIMP, prop.setterTypeEncoding.UTF8String);
+        class_addMethod(self, prop.setter, setterIMP, prop.setterTypeEncoding.UTF8String);
     }
 
     return synthesized;
@@ -371,7 +405,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 {
     __unsafe_unretained id value = [self valueForKey:property.name];
 
-    if ( strcmp(property.typeEncoding.UTF8String, @encode(id)) == 0 ) {
+    if ( property ) {
         [invocation setReturnValue:&value];
     }
     else {
@@ -388,7 +422,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 {
     const char *typeEncoding = property.typeEncoding.UTF8String;
 
-    if ( strcmp(typeEncoding, @encode(id)) == 0 ) {
+    if ( property.isObject ) {
         __unsafe_unretained id value = nil;
         [invocation getArgument:&value atIndex:2];
 
@@ -398,7 +432,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
         void *primitiveVal = malloc(property.typeSize);
         [invocation getArgument:primitiveVal atIndex:2];
 
-        NSValue *value = [NSValue valueWithBytes:primitiveVal objCType:typeEncoding];
+        NSValue *value = [NSValue rz_wrapValue:primitiveVal encoding:typeEncoding];
 
         [self setValue:value forKey:property.name];
 
@@ -406,11 +440,18 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     }
 }
 
+- (BOOL)isKeySet:(NSString *)key
+{
+    return [self.setKeys containsObject:key] || ![[self class] rz_propertyForKey:key].isDynamic;
+}
+
 @end
 
 #pragma mark - NSObject+RZProperties implementation
 
 @implementation NSObject (RZProperties)
+
+static dispatch_once_t s_PropertiesLoadedToken;
 
 + (void)rz_loadProperties
 {
@@ -440,8 +481,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
 + (CFDictionaryRef)rz_propertiesBySelector
 {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
+    dispatch_once(&s_PropertiesLoadedToken, ^{
         [self rz_loadProperties];
     });
 
@@ -450,8 +490,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
 + (NSDictionary *)rz_propertiesByKey
 {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
+    dispatch_once(&s_PropertiesLoadedToken, ^{
         [self rz_loadProperties];
     });
 
@@ -514,8 +553,14 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
         property->_typeEncoding = [NSString stringWithUTF8String:encoding];
         NSGetSizeAndAlignment(encoding, &property->_typeSize, NULL);
 
+        property->_object = encoding[0] == _C_ID || strcmp(encoding, @encode(Class)) == 0;
+
         free(encoding);
     }
+
+    property->_dynamic = (strstr(attributes, ",D") != NULL);
+    property->_weak = (strstr(attributes, ",W") != NULL);
+    property->_copy = (strstr(attributes, ",C") != NULL);
 
     const char *getterPtr = strstr(attributes, ",G");
 
@@ -587,6 +632,62 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 - (NSString *)description
 {
     return [NSString stringWithFormat:@"<%@, T:%@, G:%@, S:%@>", self.name, self.typeEncoding, NSStringFromSelector(self.getter), NSStringFromSelector(self.setter)];
+}
+
+@end
+
+#pragma mark - NSValue+RZConfigurationExtensions implementation
+
+@implementation NSValue (RZConfigurationExtensions)
+
++ (NSValue *)rz_wrapValue:(const void *)value encoding:(const char *)encoding
+{
+    NSValue *wrappedValue = nil;
+
+    if ( strcmp(encoding, @encode(char)) == 0 ) {
+        wrappedValue = [NSNumber numberWithChar:*((char *)value)];
+    }
+    else if ( strcmp(encoding, @encode(unsigned char)) == 0 ) {
+        wrappedValue = [NSNumber numberWithUnsignedChar:*((unsigned char *)value)];
+    }
+    else if ( strcmp(encoding, @encode(short)) == 0 ) {
+        wrappedValue = [NSNumber numberWithShort:*((short *)value)];
+    }
+    else if ( strcmp(encoding, @encode(unsigned short)) == 0 ) {
+        wrappedValue = [NSNumber numberWithUnsignedShort:*((unsigned short *)value)];
+    }
+    else if ( strcmp(encoding, @encode(int)) == 0 ) {
+        wrappedValue = [NSNumber numberWithInt:*((int *)value)];
+    }
+    else if ( strcmp(encoding, @encode(unsigned int)) == 0 ) {
+        wrappedValue = [NSNumber numberWithUnsignedInt:*((int *)value)];
+    }
+    else if ( strcmp(encoding, @encode(long)) == 0 ) {
+        wrappedValue = [NSNumber numberWithLong:*((long *)value)];
+    }
+    else if ( strcmp(encoding, @encode(unsigned long)) == 0 ) {
+        wrappedValue = [NSNumber numberWithUnsignedLong:*((unsigned long *)value)];
+    }
+    else if ( strcmp(encoding, @encode(long long)) == 0 ) {
+        wrappedValue = [NSNumber numberWithLongLong:*((long long *)value)];
+    }
+    else if ( strcmp(encoding, @encode(unsigned long long)) == 0 ) {
+        wrappedValue = [NSNumber numberWithUnsignedLongLong:*((unsigned long long *)value)];
+    }
+    else if ( strcmp(encoding, @encode(float)) == 0 ) {
+        wrappedValue = [NSNumber numberWithFloat:*((float *)value)];
+    }
+    else if ( strcmp(encoding, @encode(double)) == 0 ) {
+        wrappedValue = [NSNumber numberWithDouble:*((double *)value)];
+    }
+    else if ( strcmp(encoding, @encode(BOOL)) == 0 ) {
+        wrappedValue = [NSNumber numberWithBool:*((BOOL *)value)];
+    }
+    else {
+        wrappedValue = [NSValue valueWithBytes:value objCType:encoding];
+    }
+
+    return wrappedValue;
 }
 
 @end
