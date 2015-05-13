@@ -14,27 +14,34 @@
 
 static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationPropertyKey;
 
-#define RZ_GETTER_BLOCK(_key, _type) \
+#define RZ_GET_VALUE_UNWRAP(_type)    ({ _type t; [value getValue:&t]; t;})
+#define RZ_GET_VALUE_NO_UNWRAP(_type) (value)
+
+#define RZ_GETTER_BLOCK(_key, _type, _unwrapping) \
 ^_type (RZConfiguration *self) \
 { \
-    if ( ![self isKeySet:_key] ) { \
-        id defaultVal = [[self class] defaultValueForKey:_key]; \
-        if ( defaultVal != nil ) { \
-            [self setValue:defaultVal forKey:_key]; \
-        } \
+    id value = nil; \
+    if ( ![self containsNonDefaultValueForKey:key] ) { \
+        value = [[self class] defaultValueForKey:key]; \
+        [self setValue:value forUndefinedKey:key]; \
     } \
-    id val = [self valueForUndefinedKey:_key]; \
-    _type t; \
-    [val getValue:&t]; \
-    return t;\
+    else { \
+        value = [self valueForUndefinedKey:_key]; \
+    } \
+    _type ret = _unwrapping(_type); \
+    return ret;\
 }
 
-#define RZ_SETTER_BLOCK(_key, _type, _encoding) \
+#define RZ_SET_VALUE_WRAP(_encoding) [NSValue rz_wrapValue:&value encoding:_encoding.UTF8String]
+#define RZ_SET_VALUE_NO_WRAP         (value)
+
+#define RZ_SETTER_BLOCK(_key, _type, _value) \
 ^void (RZConfiguration *self, _type value) \
 { \
     @autoreleasepool { \
-        [self.setKeys addObject:_key]; \
-        [self setValue:[NSValue rz_wrapValue:&value encoding:_encoding.UTF8String]  forUndefinedKey:_key]; \
+        [self willChangeValueForKey:_key]; \
+        [self setValue:_value forUndefinedKey:_key]; \
+        [self didChangeValueForKey:_key]; \
     } \
 }
 
@@ -80,6 +87,8 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 + (RZObjcProperty *)rz_propertyForSelector:(SEL)selector;
 + (RZObjcProperty *)rz_propertyForKey:(NSString *)key;
 
+- (BOOL)rz_containsValueAtKeyPath:(NSString *)keyPath;
+
 @end
 
 #pragma mark - RZConfiguration private interface
@@ -87,7 +96,6 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 @interface RZConfiguration ()
 
 @property (strong, nonatomic) NSMutableDictionary *undefinedKeyValuePairs;
-@property (strong, nonatomic) NSMutableSet *setKeys;
 
 @end
 
@@ -100,29 +108,44 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     self = [super init];
     if ( self ) {
         _undefinedKeyValuePairs = [NSMutableDictionary dictionary];
-        _setKeys = [NSMutableSet set];
     }
     return self;
 }
 
 #pragma mark - KVC
 
+// TODO: probably need to implement +automaticallyNotifiesObserversForKey:
+
 + (id)defaultValueForKey:(NSString *)key
 {
     return nil;
 }
 
+- (BOOL)containsValueForKey:(NSString *)key
+{
+    return ([self containsNonDefaultValueForKey:key] ||
+            [[self class] defaultValueForKey:key] != nil );
+}
+
+- (BOOL)containsValueAtKeyPath:(NSString *)keyPath
+{
+    return [self rz_containsValueAtKeyPath:keyPath];
+}
+
 - (id)valueForKey:(NSString *)key
 {
-    if ( ![self isKeySet:key] ) {
-        id defaultVal = [[self class] defaultValueForKey:key];
+    id value = nil;
 
-        if ( defaultVal != nil ) {
-            [self setValue:defaultVal forKey:key];
-        }
+    if ( ![self containsNonDefaultValueForKey:key] ) {
+        value = [[self class] defaultValueForKey:key];
+        [self setValue:value forUndefinedKey:key];
     }
 
-    return [super valueForKey:key];
+    if ( value == nil ) {
+        value = [super valueForKey:key];
+    }
+
+    return value;
 }
 
 - (id)valueForUndefinedKey:(NSString *)key
@@ -145,7 +168,6 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 - (void)setValue:(id)value forKey:(NSString *)key
 {
     if ( key != nil ) {
-        [self.setKeys addObject:key];
         [super setValue:value forKey:key];
     }
 }
@@ -277,93 +299,88 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     const char *utf8Encoding = encoding.UTF8String;
 
     if ( prop.isObject ) {
-        getRet = ^id (RZConfiguration *self) {
-            return [self valueForKey:key];
-        };
-
-        setRet = ^void (RZConfiguration *self, id val) {
-            [self setValue:val forKey:key];
-        };
+        getRet = RZ_GETTER_BLOCK(key, id, RZ_GET_VALUE_NO_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, id, RZ_SET_VALUE_NO_WRAP);
     }
     else if ( strcmp(utf8Encoding, @encode(char)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, char);
-        setRet = RZ_SETTER_BLOCK(key, char, encoding);
+        getRet = RZ_GETTER_BLOCK(key, char, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, char, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(char *)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, char *);
-        setRet = RZ_SETTER_BLOCK(key, char *, encoding);
+        getRet = RZ_GETTER_BLOCK(key, char *, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, char *, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(void *)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, void *);
-        setRet = RZ_SETTER_BLOCK(key, void *, encoding);
+        getRet = RZ_GETTER_BLOCK(key, void *, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, void *, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(u_char)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, u_char);
-        setRet = RZ_SETTER_BLOCK(key, u_char, encoding);
+        getRet = RZ_GETTER_BLOCK(key, u_char, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, u_char, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(short)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, short);
-        setRet = RZ_SETTER_BLOCK(key, short, encoding);
+        getRet = RZ_GETTER_BLOCK(key, short, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, short, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(u_short)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, u_short);
-        setRet = RZ_SETTER_BLOCK(key, u_short, encoding);
+        getRet = RZ_GETTER_BLOCK(key, u_short, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, u_short, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(int)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, int);
-        setRet = RZ_SETTER_BLOCK(key, int, encoding);
+        getRet = RZ_GETTER_BLOCK(key, int, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, int, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(u_int)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, u_int);
-        setRet = RZ_SETTER_BLOCK(key, u_int, encoding);
+        getRet = RZ_GETTER_BLOCK(key, u_int, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, u_int, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(long)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, long);
-        setRet = RZ_SETTER_BLOCK(key, long, encoding);
+        getRet = RZ_GETTER_BLOCK(key, long, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, long, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(u_long)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, u_long);
-        setRet = RZ_SETTER_BLOCK(key, u_long, encoding);
+        getRet = RZ_GETTER_BLOCK(key, u_long, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, u_long, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(long long)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, long long);
-        setRet = RZ_SETTER_BLOCK(key, long long, encoding);
+        getRet = RZ_GETTER_BLOCK(key, long long, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, long long, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(unsigned long long)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, unsigned long long);
-        setRet = RZ_SETTER_BLOCK(key, unsigned long long, encoding);
+        getRet = RZ_GETTER_BLOCK(key, unsigned long long, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, unsigned long long, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(float)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, float);
-        setRet = RZ_SETTER_BLOCK(key, float, encoding);
+        getRet = RZ_GETTER_BLOCK(key, float, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, float, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(double)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, double);
-        setRet = RZ_SETTER_BLOCK(key, double, encoding);
+        getRet = RZ_GETTER_BLOCK(key, double, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, double, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(BOOL)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, BOOL);
-        setRet = RZ_SETTER_BLOCK(key, BOOL, encoding);
+        getRet = RZ_GETTER_BLOCK(key, BOOL, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, BOOL, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( strcmp(utf8Encoding, @encode(SEL)) == 0 ) {
-        getRet = RZ_GETTER_BLOCK(key, SEL);
-        setRet = RZ_SETTER_BLOCK(key, SEL, encoding);
+        getRet = RZ_GETTER_BLOCK(key, SEL, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, SEL, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( prop.typeSize == sizeof(CGPoint) ) {
-        getRet = RZ_GETTER_BLOCK(key, CGPoint);
-        setRet = RZ_SETTER_BLOCK(key, CGPoint, encoding);
+        getRet = RZ_GETTER_BLOCK(key, CGPoint, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, CGPoint, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( prop.typeSize == sizeof(CGRect) ) {
-        getRet = RZ_GETTER_BLOCK(key, CGRect);
-        setRet = RZ_SETTER_BLOCK(key, CGRect, encoding);
+        getRet = RZ_GETTER_BLOCK(key, CGRect, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, CGRect, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( prop.typeSize == sizeof(CGAffineTransform) ) {
-        getRet = RZ_GETTER_BLOCK(key, CGAffineTransform);
-        setRet = RZ_SETTER_BLOCK(key, CGAffineTransform, encoding);
+        getRet = RZ_GETTER_BLOCK(key, CGAffineTransform, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, CGAffineTransform, RZ_SET_VALUE_WRAP(encoding));
     }
     else if ( prop.typeSize == sizeof(CATransform3D) ) {
-        getRet = RZ_GETTER_BLOCK(key, CATransform3D);
-        setRet = RZ_SETTER_BLOCK(key, CATransform3D, encoding);
+        getRet = RZ_GETTER_BLOCK(key, CATransform3D, RZ_GET_VALUE_UNWRAP);
+        setRet = RZ_SETTER_BLOCK(key, CATransform3D, RZ_SET_VALUE_WRAP(encoding));
     }
 
     if ( getter != NULL ) {
@@ -440,9 +457,10 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     }
 }
 
-- (BOOL)isKeySet:(NSString *)key
+- (BOOL)containsNonDefaultValueForKey:(NSString *)key
 {
-    return [self.setKeys containsObject:key] || ![[self class] rz_propertyForKey:key].isDynamic;
+    return (self.undefinedKeyValuePairs[key] != nil ||
+            ![[self class] rz_propertyForKey:key].isDynamic);
 }
 
 @end
@@ -451,10 +469,14 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
 @implementation NSObject (RZProperties)
 
-static dispatch_once_t s_PropertiesLoadedToken;
-
 + (void)rz_loadProperties
 {
+    if ( [objc_getAssociatedObject(self, _cmd) boolValue] ) {
+        return;
+    }
+
+    objc_setAssociatedObject(self, _cmd, @(YES), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
     CFMutableDictionaryRef propertiesBySel = CFDictionaryCreateMutable(NULL, 0, NULL, &kCFTypeDictionaryValueCallBacks);
 
     NSMutableDictionary *propertiesByKey = [NSMutableDictionary dictionary];
@@ -481,18 +503,14 @@ static dispatch_once_t s_PropertiesLoadedToken;
 
 + (CFDictionaryRef)rz_propertiesBySelector
 {
-    dispatch_once(&s_PropertiesLoadedToken, ^{
-        [self rz_loadProperties];
-    });
+    [self rz_loadProperties];
 
     return (__bridge CFDictionaryRef)objc_getAssociatedObject(self, _cmd);
 }
 
 + (NSDictionary *)rz_propertiesByKey
 {
-    dispatch_once(&s_PropertiesLoadedToken, ^{
-        [self rz_loadProperties];
-    });
+    [self rz_loadProperties];
 
     return objc_getAssociatedObject(self, _cmd);
 }
@@ -520,6 +538,32 @@ static dispatch_once_t s_PropertiesLoadedToken;
     }
 
     return property;
+}
+
+- (BOOL)rz_containsValueAtKeyPath:(NSString *)keyPath
+{
+    BOOL set = YES;
+
+    NSRange firstKeyRange = [keyPath rangeOfString:@"."];
+
+    if ( firstKeyRange.location != NSNotFound ) {
+        NSString *firstKey = [keyPath substringToIndex:firstKeyRange.location];
+        id value = [self valueForKey:firstKey];
+
+        if ( [value isKindOfClass:[RZConfiguration class]] ) {
+            set = [value containsValueForKey:firstKey];
+        }
+
+        if ( set && value != nil ) {
+            NSString *remainingPath = [keyPath substringFromIndex:NSMaxRange(firstKeyRange)];
+            set = [value rz_containsValueAtKeyPath:remainingPath];
+        }
+    }
+    else if ( [self isKindOfClass:[RZConfiguration class]] ) {
+        set = [(RZConfiguration *)self containsValueForKey:keyPath];
+    }
+    
+    return set;
 }
 
 @end

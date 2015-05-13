@@ -13,6 +13,13 @@
 
 static NSString* const kRZConfigurationKeyPathPrefix = @"rz_configuration.";
 
+@interface NSString (RZConfigurationHelpers)
+
+- (NSString *)rz_stringByAddingPrefix:(NSString *)prefix;
+- (NSString *)rz_stringByRemovingPrefix:(NSString *)prefix;
+
+@end
+
 @implementation NSObject (RZConfiguration)
 
 + (NSDictionary *)rz_configurationBindings
@@ -108,8 +115,21 @@ static NSString* const kRZConfigurationKeyPathPrefix = @"rz_configuration.";
     return transform;
 }
 
+- (NSMutableDictionary *)rz_deferredBindings
+{
+    NSMutableDictionary *deferredBindings = objc_getAssociatedObject(self, _cmd);
+
+    if ( deferredBindings == nil ) {
+        deferredBindings = [NSMutableDictionary dictionary];
+        objc_setAssociatedObject(self, _cmd, deferredBindings, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    return deferredBindings;
+}
+
 - (void)rz_configureBindings
 {
+    // TODO: these should be reconfigured if the configuration object changes
     if ( [objc_getAssociatedObject(self, _cmd) boolValue] ) {
         return;
     }
@@ -128,47 +148,98 @@ static NSString* const kRZConfigurationKeyPathPrefix = @"rz_configuration.";
             keyPaths = [value allObjects];
         }
 
-        NSMutableArray *prefixedKeyPaths = [NSMutableArray array];
-
-        for ( NSString *keyPath in keyPaths) {
-            if ( [keyPath isKindOfClass:[NSString class]] ) {
-                if ( [keyPath hasPrefix:kRZConfigurationKeyPathPrefix] ) {
-                    [prefixedKeyPaths addObject:keyPath];
-                }
-                else {
-                    [prefixedKeyPaths addObject:[kRZConfigurationKeyPathPrefix stringByAppendingString:keyPath]];
-                }
-            }
+        if ( keyPaths.count == 0 && [value isKindOfClass:[NSString class]] ) {
+            keyPaths = @[value];
         }
-
-        keyPaths = prefixedKeyPaths;
 
         SEL action = [[self class] rz_configurationActionForKey:key];
 
         if ( action != NULL ) {
-            if ( keyPaths.count > 0 ) {
-                [self rz_addTarget:self action:action forKeyPathChanges:keyPaths];
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                [self performSelector:action withObject:nil];
-#pragma pop
-            }
-            else if ( [value isKindOfClass:[NSString class]] ) {
-                [self rz_addTarget:self action:action forKeyPathChange:value callImmediately:YES];
-            }
+            [self rz_configureAction:action forKeyPaths:keyPaths];
         }
         else {
-            RZDBKeyBindingTransform transform = [[self class] rz_configurationTransformForKey:key];
-
-            if ( keyPaths.count == 0 && [value isKindOfClass:[NSString class]] ) {
-                keyPaths = @[[kRZConfigurationKeyPathPrefix stringByAppendingString:value]];
-            }
-
-            for ( NSString *keyPath in keyPaths ) {
-                [self rz_bindKey:key toKeyPath:keyPath ofObject:self withTransform:transform];
-            }
+            [self rz_configureBindingsForKey:key toKeyPaths:keyPaths];
         }
     }];
+}
+
+- (void)rz_configureAction:(SEL)action forKeyPaths:(NSArray *)keyPaths
+{
+    if ( keyPaths.count > 0 ) {
+        NSMutableArray *prefixedKeyPaths = [NSMutableArray array];
+
+        for ( NSString *keyPath in keyPaths) {
+            [prefixedKeyPaths addObject:[keyPath rz_stringByAddingPrefix:kRZConfigurationKeyPathPrefix]];
+        }
+
+        [self rz_addTarget:self action:action forKeyPathChanges:prefixedKeyPaths];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [self performSelector:action withObject:nil];
+#pragma pop
+    }
+    else if ( keyPaths.count == 1 ) {
+        NSString *prefixedPath = [[keyPaths firstObject] rz_stringByAddingPrefix:kRZConfigurationKeyPathPrefix];
+        NSString *unPrefixedPath = [[keyPaths firstObject] rz_stringByRemovingPrefix:kRZConfigurationKeyPathPrefix];
+
+        BOOL callImmediately = [self.rz_configuration containsValueAtKeyPath:unPrefixedPath];
+        [self rz_addTarget:self action:action forKeyPathChange:prefixedPath callImmediately:callImmediately];
+    }
+}
+
+- (void)rz_configureBindingsForKey:(NSString *)key toKeyPaths:(NSArray *)keyPaths
+{
+    RZDBKeyBindingTransform transform = [[self class] rz_configurationTransformForKey:key];
+
+    for ( NSString *keyPath in keyPaths ) {
+        NSString *prefixedPath = [keyPath rz_stringByAddingPrefix:kRZConfigurationKeyPathPrefix];
+        NSString *unPrefixedPath = [keyPath rz_stringByRemovingPrefix:kRZConfigurationKeyPathPrefix];
+
+        __weak typeof(self) wself = self;
+        dispatch_block_t bindingBlock = ^{
+            [wself rz_bindKey:key toKeyPath:prefixedPath ofObject:wself withTransform:transform];
+        };
+
+        if ( [self.rz_configuration containsValueAtKeyPath:unPrefixedPath] ) {
+            bindingBlock();
+        }
+        else {
+            [self rz_deferredBindings][prefixedPath] = [bindingBlock copy];
+            [self rz_addTarget:self action:@selector(rz_configureDeferredBinding:) forKeyPathChange:prefixedPath];
+        }
+    }
+}
+
+- (void)rz_configureDeferredBinding:(NSDictionary *)changeDict
+{
+    NSString *keyPath = changeDict[kRZDBChangeKeyKeyPath];
+
+    NSMutableDictionary *deferredBindings = [self rz_deferredBindings];
+
+    dispatch_block_t bindingBlock = deferredBindings[keyPath];
+
+    if ( bindingBlock != nil ) {
+        bindingBlock();
+    }
+
+    [deferredBindings removeObjectForKey:keyPath];
+    [self rz_removeTarget:self action:_cmd forKeyPathChange:keyPath];
+}
+
+@end
+
+@implementation NSString (RZConfigurationHelpers)
+
+- (NSString *)rz_stringByAddingPrefix:(NSString *)prefix
+{
+    return [self hasPrefix:prefix] ? self : [prefix stringByAppendingString:self];
+}
+
+- (NSString *)rz_stringByRemovingPrefix:(NSString *)prefix
+{
+    NSRange prefixRange = [self rangeOfString:prefix];
+
+    return prefixRange.location != 0 ? self : [self substringFromIndex:NSMaxRange(prefixRange)];
 }
 
 @end

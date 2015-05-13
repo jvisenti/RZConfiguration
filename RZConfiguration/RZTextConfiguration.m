@@ -17,6 +17,23 @@
 
 @synthesize attributedString = _attributedString;
 
++ (id)defaultValueForKey:(NSString *)key
+{
+    id defaultVal = nil;
+
+    if ( [key isEqualToString:RZDB_KP(RZTextConfiguration, font)] ) {
+        defaultVal = [UIFont systemFontOfSize:[UIFont systemFontSize]];
+    }
+    else if ( [key isEqualToString:RZDB_KP(RZTextConfiguration, color)] ) {
+        defaultVal = [UIColor blackColor];
+    }
+    else {
+        defaultVal = [super defaultValueForKey:key];
+    }
+
+    return defaultVal;
+}
+
 - (instancetype)init
 {
     self = [super init];
@@ -26,23 +43,6 @@
          forKeyPathChanges:[[[self class] keyPathsDrivingAttributedString] allObjects]];
     }
     return self;
-}
-
-+ (id)defaultValueForKey:(NSString *)key
-{
-    id value = nil;
-
-    if ( [key isEqualToString:RZDB_KP(RZTextConfiguration, font)] ) {
-        value = [UIFont systemFontOfSize:[UIFont systemFontSize]];
-    }
-    else if ( [key isEqualToString:RZDB_KP(RZTextConfiguration, color)] ) {
-        value = [UIColor blackColor];
-    }
-    else {
-        value = [super defaultValueForKey:key];
-    }
-
-    return value;
 }
 
 - (void)willChangeValueForKey:(NSString *)key
@@ -70,15 +70,17 @@
         NSMutableAttributedString *attributedString = nil;
 
         if ( self.text != nil ) {
-            UIColor *color = self.color ?: [UIColor blackColor];
-            UIFont *font = self.font ?: [UIFont systemFontOfSize:[UIFont systemFontSize]];
-            NSDictionary *attributes = @{
-                                         NSForegroundColorAttributeName: color,
-                                         NSFontAttributeName: font
-                                         };
+            NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
 
-            attributedString = [[NSMutableAttributedString alloc] initWithString:self.text
-                                                                      attributes:attributes];
+            if ( self.color != nil ) {
+                attributes[NSForegroundColorAttributeName] = self.color;
+            }
+
+            if ( self.font != nil ) {
+                attributes[NSFontAttributeName] = self.font;
+            }
+
+            attributedString = [[NSMutableAttributedString alloc] initWithString:self.text attributes:attributes];
         }
 
         _attributedString = [attributedString copy];

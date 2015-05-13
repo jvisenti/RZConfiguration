@@ -7,9 +7,8 @@
 
 #import <Foundation/Foundation.h>
 
+#import "RZConfiguration.h"
 #import "RZDBTransforms.h"
-
-@class RZConfiguration;
 
 @interface NSObject (RZConfiguration)
 

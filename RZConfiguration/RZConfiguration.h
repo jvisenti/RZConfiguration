@@ -11,4 +11,7 @@
 
 + (id)defaultValueForKey:(NSString *)key;
 
+- (BOOL)containsValueForKey:(NSString *)key;
+- (BOOL)containsValueAtKeyPath:(NSString *)keyPath;
+
 @end

@@ -5,11 +5,21 @@
 //  Copyright (c) 2015 Raizlabs. All rights reserved.
 //
 
-#import "NSObject+RZConfiguration.h"
+#import "UIView+RZConfiguration.h"
+
 #import "RZTextConfiguration.h"
+
+@class RZLabelConfiguration;
 
 @interface UILabel (RZConfiguration)
 
-@property (strong, nonatomic, setter=rz_setConfiguration:) RZTextConfiguration *rz_configuration;
+@property (strong, nonatomic, setter=rz_setConfiguration:) RZLabelConfiguration *rz_configuration;
+
+@end
+
+@interface RZLabelConfiguration : RZConfiguration
+
+@property (strong, nonatomic) RZViewConfiguration *viewConfiguration;
+@property (strong, nonatomic) RZTextConfiguration *textConfiguration;
 
 @end
