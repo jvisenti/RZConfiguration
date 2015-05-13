@@ -53,7 +53,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
 @end
 
-#pragma mark - RZConfigurationProperty interface
+#pragma mark - RZObjcProperty interface
 
 @interface RZObjcProperty : NSObject
 
@@ -114,7 +114,12 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
 #pragma mark - KVC
 
-// TODO: probably need to implement +automaticallyNotifiesObserversForKey:
++ (BOOL)automaticallyNotifiesObserversForKey:(NSString *)key
+{
+    RZObjcProperty *property = [self rz_propertyForKey:key];
+
+    return (property == nil);
+}
 
 + (id)defaultValueForKey:(NSString *)key
 {
@@ -568,7 +573,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 
 @end
 
-#pragma mark - RZConfigurationProperty implementation
+#pragma mark - RZObjcProperty implementation
 
 @implementation RZObjcProperty
 
