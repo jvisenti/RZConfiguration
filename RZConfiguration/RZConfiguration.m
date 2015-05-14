@@ -13,6 +13,8 @@
 
 static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationPropertyKey;
 
+static NSString* const KRZConfigurationArchiveRootKey = @"RZConfigurationArchiveRoot";
+
 #define RZ_GET_VALUE_UNWRAP(_type)    ({ _type t; [value getValue:&t]; t;})
 #define RZ_GET_VALUE_NO_UNWRAP(_type) (value)
 
@@ -135,6 +137,24 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     return [self rz_containsValueAtKeyPath:keyPath];
 }
 
+- (BOOL)shouldArchiveValueForKey:(NSString *)key
+{
+    return YES;
+}
+
+- (void)importEntriesFromConfiguration:(RZConfiguration *)configuration overwrite:(BOOL)overwrite
+{
+    [[configuration.undefinedKeyValuePairs copy] enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
+        if ( overwrite || ![self containsValueForKey:key]) {
+            RZObjcProperty *prop = [[self class] rz_propertyForKey:key];
+
+            id importValue = prop.isCopy ? [value copy] : value;
+
+            [self setValue:importValue forKey:key];
+        }
+    }];
+}
+
 - (id)valueForKey:(NSString *)key
 {
     id value = nil;
@@ -209,6 +229,41 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
     else {
         [super setNilValueForKey:key];
     }
+}
+
+#pragma mark - NSCopying
+
+- (id)copyWithZone:(NSZone *)zone
+{
+    RZConfiguration *copy = [[[self class] alloc] init];
+
+    [copy importEntriesFromConfiguration:self overwrite:YES];
+
+    return copy;
+}
+
+#pragma mark - NSCoding
+
+- (id)initWithCoder:(NSCoder *)aDecoder
+{
+    self = [super init];
+    if ( self ) {
+        self.undefinedKeyValuePairs = [aDecoder decodeObjectForKey:KRZConfigurationArchiveRootKey];
+    }
+    return self;
+}
+
+- (void)encodeWithCoder:(NSCoder *)aCoder
+{
+    NSMutableDictionary *encodedKeyValuePairs = [NSMutableDictionary dictionary];
+
+    [[self.undefinedKeyValuePairs copy] enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
+        if ( [self shouldArchiveValueForKey:key] ) {
+            encodedKeyValuePairs[key] = value;
+        }
+    }];
+
+    [aCoder encodeObject:encodedKeyValuePairs forKey:KRZConfigurationArchiveRootKey];
 }
 
 #pragma mark - method resolution (fallback when properties can't be synthesized)

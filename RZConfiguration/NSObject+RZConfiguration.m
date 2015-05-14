@@ -186,17 +186,7 @@
 
 - (void)rz_configureAction:(SEL)action forKeyPaths:(NSArray *)keyPaths ofConfiguration:(RZConfiguration *)configuration
 {
-    if ( keyPaths.count > 0 ) {
-        [configuration rz_addTarget:self action:action forKeyPathChanges:keyPaths];
-
-        // TODO: use new callImmediately API in RZDB 2.0
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        [self performSelector:action withObject:nil];
-#pragma pop
-    }
-    else if ( keyPaths.count == 1 ) {
-        NSString *keyPath = [keyPaths firstObject];
+    for ( NSString *keyPath in keyPaths ) {
         BOOL callImmediately = [configuration containsValueAtKeyPath:keyPath];
         [configuration rz_addTarget:self action:action forKeyPathChange:keyPath callImmediately:callImmediately];
     }

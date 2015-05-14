@@ -18,23 +18,6 @@
 
 @synthesize attributedString = _attributedString;
 
-+ (id)defaultValueForKey:(NSString *)key
-{
-    id defaultVal = nil;
-
-    if ( [key isEqualToString:RZDB_KP(RZTextConfiguration, font)] ) {
-        defaultVal = [UIFont systemFontOfSize:[UIFont systemFontSize]];
-    }
-    else if ( [key isEqualToString:RZDB_KP(RZTextConfiguration, color)] ) {
-        defaultVal = [UIColor blackColor];
-    }
-    else {
-        defaultVal = [super defaultValueForKey:key];
-    }
-
-    return defaultVal;
-}
-
 - (instancetype)init
 {
     self = [super init];

@@ -7,11 +7,15 @@
 
 #import <Foundation/Foundation.h>
 
-@interface RZConfiguration : NSObject
+@interface RZConfiguration : NSObject <NSCopying, NSCoding>
 
 + (id)defaultValueForKey:(NSString *)key;
 
 - (BOOL)containsValueForKey:(NSString *)key;
 - (BOOL)containsValueAtKeyPath:(NSString *)keyPath;
+
+- (BOOL)shouldArchiveValueForKey:(NSString *)key;
+
+- (void)importEntriesFromConfiguration:(RZConfiguration *)configuration overwrite:(BOOL)overwrite;
 
 @end

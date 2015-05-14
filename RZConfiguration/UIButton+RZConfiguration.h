@@ -33,4 +33,6 @@
 @property (strong, nonatomic) RZButtonStateConfiguration *selectedHighlightedConfiguration;
 @property (strong, nonatomic) RZButtonStateConfiguration *disabledConfiguration;
 
+- (RZButtonStateConfiguration *)configuratonForControlState:(UIControlState)state;
+
 @end

@@ -13,6 +13,8 @@ static NSString* const kRZButtonImageKey = @"RZImage";
 static NSString* const kRZButtonBackgroundImageKey = @"RZBackgroundImage";
 static NSString* const kRZButtonAttributedTitleKey = @"RZAttributedTitle";
 
+#pragma mark - UIButton+RZConfiguration
+
 @implementation UIButton (RZConfiguration)
 
 + (NSDictionary *)rz_configurationBindings
@@ -66,58 +68,99 @@ static NSString* const kRZButtonAttributedTitleKey = @"RZAttributedTitle";
 
 - (void)rz_imageChanged:(NSDictionary *)changeDict
 {
-    UIControlState state = [self rz_controlStateForChangedKeyPath:changeDict[kRZDBChangeKeyKeyPath]];
+    RZButtonStateConfiguration *stateConfig = [self rz_stateConfigurationForChangedKeyPath:changeDict[kRZDBChangeKeyKeyPath]];
+    UIControlState state = [self rz_controlStateForChangedConfiguration:stateConfig];
 
     [self setImage:changeDict[kRZDBChangeKeyNew] forState:state];
 }
 
 - (void)rz_backgroundImageChanged:(NSDictionary *)changeDict
 {
-    UIControlState state = [self rz_controlStateForChangedKeyPath:changeDict[kRZDBChangeKeyKeyPath]];
-
+    RZButtonStateConfiguration *stateConfig = [self rz_stateConfigurationForChangedKeyPath:changeDict[kRZDBChangeKeyKeyPath]];
+    UIControlState state = [self rz_controlStateForChangedConfiguration:stateConfig];
+    
     [self setBackgroundImage:changeDict[kRZDBChangeKeyNew] forState:state];
 }
 
 - (void)rz_attributedTitleChanged:(NSDictionary *)changeDict
 {
-    UIControlState state = [self rz_controlStateForChangedKeyPath:changeDict[kRZDBChangeKeyKeyPath]];
+    RZButtonStateConfiguration *stateConfig = [self rz_stateConfigurationForChangedKeyPath:changeDict[kRZDBChangeKeyKeyPath]];
+    UIControlState state = [self rz_controlStateForChangedConfiguration:stateConfig];
 
-    [self setAttributedTitle:changeDict[kRZDBChangeKeyNew] forState:state];
+    [self setAttributedTitle:[self rz_attributedTitleForState:state] forState:state];
+
+    if ( state == UIControlStateNormal ) {
+        [self setAttributedTitle:[self rz_attributedTitleForState:UIControlStateHighlighted] forState:UIControlStateHighlighted];
+        [self setAttributedTitle:[self rz_attributedTitleForState:UIControlStateSelected] forState:UIControlStateSelected];
+        [self setAttributedTitle:[self rz_attributedTitleForState:UIControlStateSelected |UIControlStateHighlighted] forState:UIControlStateSelected | UIControlStateHighlighted];
+        [self setAttributedTitle:[self rz_attributedTitleForState:UIControlStateDisabled] forState:UIControlStateDisabled];
+    }
 }
 
-- (UIControlState)rz_controlStateForChangedKeyPath:(NSString *)keyPath
+- (NSAttributedString *)rz_attributedTitleForState:(UIControlState)state
 {
-    RZButtonConfiguration *configuration = self.rz_configuration;
-    UIControlState state = UIControlStateNormal;
+    RZButtonConfiguration *buttonConfig = self.rz_configuration;
+    RZButtonStateConfiguration *normalConfig = buttonConfig.normalConfiguration;
+
+    NSAttributedString *attributedTitle = nil;
+
+    if ( state == UIControlStateNormal ) {
+        attributedTitle = normalConfig.textConfiguration.attributedString;
+    }
+    else {
+        RZButtonStateConfiguration *stateConfig = [buttonConfig configuratonForControlState:state];
+
+        RZTextConfiguration *textConfig = [stateConfig.textConfiguration copy];
+        [textConfig importEntriesFromConfiguration:normalConfig.textConfiguration overwrite:NO];
+
+        attributedTitle = textConfig.attributedString;
+    }
+
+    return attributedTitle;
+}
+
+- (RZButtonStateConfiguration *)rz_stateConfigurationForChangedKeyPath:(NSString *)keyPath
+{
+    RZButtonStateConfiguration *stateConfig = nil;
 
     NSRange dotRange = [keyPath rangeOfString:@"."];
 
     if ( dotRange.location != NSNotFound ) {
         NSString *key = [keyPath substringToIndex:dotRange.location];
-        RZButtonStateConfiguration *stateConfig = [configuration valueForKey:key];
+        stateConfig = [self.rz_configuration valueForKey:key];
+    }
 
-        if ( configuration.highlightedConfiguration != nil &&
-            stateConfig == configuration.highlightedConfiguration ) {
-            state = UIControlStateHighlighted;
-        }
-        else if ( configuration.selectedConfiguration != nil &&
-                 stateConfig == configuration.selectedConfiguration ) {
-            state = UIControlStateSelected;
-        }
-        else if ( configuration.selectedHighlightedConfiguration != nil &&
-                 stateConfig == configuration.selectedHighlightedConfiguration ) {
-            state = UIControlStateSelected | UIControlStateHighlighted;
-        }
-        else if ( configuration.disabledConfiguration != nil &&
-                 stateConfig == configuration.disabledConfiguration ) {
-            state = UIControlStateDisabled;
-        }
+    return stateConfig;
+}
+
+- (UIControlState)rz_controlStateForChangedConfiguration:(RZButtonStateConfiguration *)stateConfig
+{
+    RZButtonConfiguration *configuration = self.rz_configuration;
+    UIControlState state = UIControlStateNormal;
+
+    if ( configuration.highlightedConfiguration != nil &&
+        stateConfig == configuration.highlightedConfiguration ) {
+        state = UIControlStateHighlighted;
+    }
+    else if ( configuration.selectedConfiguration != nil &&
+             stateConfig == configuration.selectedConfiguration ) {
+        state = UIControlStateSelected;
+    }
+    else if ( configuration.selectedHighlightedConfiguration != nil &&
+             stateConfig == configuration.selectedHighlightedConfiguration ) {
+        state = UIControlStateSelected | UIControlStateHighlighted;
+    }
+    else if ( configuration.disabledConfiguration != nil &&
+             stateConfig == configuration.disabledConfiguration ) {
+        state = UIControlStateDisabled;
     }
 
     return state;
 }
 
 @end
+
+#pragma mark - RZButtonStateConfiguration
 
 @implementation RZButtonStateConfiguration
 
@@ -140,6 +183,8 @@ static NSString* const kRZButtonAttributedTitleKey = @"RZAttributedTitle";
 }
 
 @end
+
+#pragma mark - RZButtonConfiguration
 
 @implementation RZButtonConfiguration
 
@@ -172,6 +217,29 @@ static NSString* const kRZButtonAttributedTitleKey = @"RZAttributedTitle";
     }
 
     return defaultVal;
+}
+
+- (RZButtonStateConfiguration *)configuratonForControlState:(UIControlState)state
+{
+    RZButtonStateConfiguration *stateConfig = nil;
+
+    if ( state == UIControlStateHighlighted ) {
+        stateConfig = self.highlightedConfiguration;
+    }
+    else if ( state == UIControlStateSelected ) {
+        stateConfig = self.selectedConfiguration;
+    }
+    else if ( state == UIControlStateSelected | UIControlStateHighlighted ) {
+        stateConfig = self.selectedHighlightedConfiguration;
+    }
+    else if ( state == UIControlStateDisabled ) {
+        stateConfig = self.disabledConfiguration;
+    }
+    else {
+        stateConfig = self.normalConfiguration;
+    }
+
+    return stateConfig;
 }
 
 @end
