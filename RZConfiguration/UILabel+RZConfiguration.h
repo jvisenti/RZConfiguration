@@ -17,9 +17,8 @@
 
 @end
 
-@interface RZLabelConfiguration : RZConfiguration
+@interface RZLabelConfiguration : RZViewConfiguration
 
-@property (strong, nonatomic) RZViewConfiguration *viewConfiguration;
 @property (strong, nonatomic) RZTextConfiguration *textConfiguration;
 
 @end

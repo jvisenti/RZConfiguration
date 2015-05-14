@@ -9,6 +9,7 @@
 
 #import "RZConfiguration.h"
 #import "RZDBTransforms.h"
+#import "RZDBMacros.h"
 
 @interface NSObject (RZConfiguration)
 
@@ -19,5 +20,11 @@
 + (SEL)rz_configurationActionForKey:(NSString *)key;
 
 + (RZDBKeyBindingTransform)rz_configurationTransformForKey:(NSString *)key;
+
+@end
+
+@interface NSDictionary (RZConfigurationHelpers)
+
+- (NSDictionary *)rz_dictionaryByAddingEntriesFromDictionary:(NSDictionary *)dict;
 
 @end

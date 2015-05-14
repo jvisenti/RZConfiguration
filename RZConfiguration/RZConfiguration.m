@@ -10,7 +10,6 @@
 #import <QuartzCore/CATransform3D.h>
 
 #import "RZConfiguration.h"
-#import "NSObject+RZDataBinding.h"
 
 static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationPropertyKey;
 
@@ -117,8 +116,7 @@ static void* const kRZConfigurationPropertyKey = (void *)&kRZConfigurationProper
 + (BOOL)automaticallyNotifiesObserversForKey:(NSString *)key
 {
     RZObjcProperty *property = [self rz_propertyForKey:key];
-
-    return (property == nil);
+    return (property == nil || property.isDynamic);
 }
 
 + (id)defaultValueForKey:(NSString *)key

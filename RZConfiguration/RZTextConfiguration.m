@@ -7,7 +7,8 @@
 
 #import "RZTextConfiguration.h"
 
-#import "RZDataBinding.h"
+#import "RZDBMacros.h"
+#import "NSObject+RZDataBinding.h"
 
 @implementation RZTextConfiguration
 
