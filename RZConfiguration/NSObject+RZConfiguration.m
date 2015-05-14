@@ -188,6 +188,8 @@
 {
     if ( keyPaths.count > 0 ) {
         [configuration rz_addTarget:self action:action forKeyPathChanges:keyPaths];
+
+        // TODO: use new callImmediately API in RZDB 2.0
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
         [self performSelector:action withObject:nil];

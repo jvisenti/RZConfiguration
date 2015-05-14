@@ -16,18 +16,21 @@
 
 @end
 
+@interface RZButtonStateConfiguration : RZConfiguration
+
+@property (strong, nonatomic) UIImage *image;
+@property (strong, nonatomic) UIImage *backgroundImage;
+
+@property (strong, nonatomic) RZTextConfiguration *textConfiguration;
+
+@end
+
 @interface RZButtonConfiguration : RZViewConfiguration
 
-@property (strong, nonatomic) UIImage *normalImage;
-@property (strong, nonatomic) UIImage *highlightedImage;
-@property (strong, nonatomic) UIImage *selectedImage;
-@property (strong, nonatomic) UIImage *selectedHighlightedImage;
-@property (strong, nonatomic) UIImage *disabledImage;
-
-@property (strong, nonatomic) RZTextConfiguration *normalTextConfiguration;
-@property (strong, nonatomic) RZTextConfiguration *highlightedTextConfiguration;
-@property (strong, nonatomic) RZTextConfiguration *selectedTextConfiguration;
-@property (strong, nonatomic) RZTextConfiguration *selectedHighlightedTextConfiguration;
-@property (strong, nonatomic) RZTextConfiguration *disabledTextConfiguration;
+@property (strong, nonatomic) RZButtonStateConfiguration *normalConfiguration;
+@property (strong, nonatomic) RZButtonStateConfiguration *highlightedConfiguration;
+@property (strong, nonatomic) RZButtonStateConfiguration *selectedConfiguration;
+@property (strong, nonatomic) RZButtonStateConfiguration *selectedHighlightedConfiguration;
+@property (strong, nonatomic) RZButtonStateConfiguration *disabledConfiguration;
 
 @end
